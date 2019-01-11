@@ -1,0 +1,209 @@
+
+/*Include*/
+  #include <hidef.h>      
+  #include "derivative.h" 
+  #include "SCI.h" //Serial Communication header file
+
+
+/*Prototypes*/
+  void setClk(void);
+  void delay1ms(unsigned int multiple);
+  void OutCRLF(void);
+ 
+int i =0; 
+short val=0;
+int flipflop=0; 
+int counter=0;
+int tenSecCounter=0; 
+int BPM;
+int tens;
+int ones;
+short button;
+  
+  
+  
+void main(void) {
+ 
+ 
+  setClk();
+
+  SCI_Init(115200);
+           
+
+  ATDCTL1=0x25;
+  ATDCTL3=0x88;
+  ATDCTL4=0x00;
+  ATDCTL5=0x25;
+  ATDDIEN=0x0020;
+  
+    /* put your own code here */
+  //Set Environment
+
+
+  
+  //Set Ports
+  DDRJ = 0x01;      //set all port J as output
+  DDR1AD=0x5F;
+  DDR0AD=0x09;
+
+
+  TSCR1 = 0x90;    //Timer System Control Register 1
+                    // TSCR1[7] = TEN:  Timer Enable (0-disable, 1-enable)
+                    // TSCR1[6] = TSWAI:  Timer runs during WAI (0-enable, 1-disable)
+                    // TSCR1[5] = TSFRZ:  Timer runs during WAI (0-enable, 1-disable)
+                    // TSCR1[4] = TFFCA:  Timer Fast Flag Clear All (0-normal 1-read/write clears interrupt flags)
+                    // TSCR1[3] = PRT:  Precision Timer (0-legacy, 1-precision)
+                    // TSCR1[2:0] not used
+
+  TSCR2 = 0x00;    //Timer System Control Register 2
+                    // TSCR2[7] = TOI: Timer Overflow Interrupt Enable (0-inhibited, 1-hardware irq when TOF=1)
+                    // TSCR2[6:3] not used
+                    // TSCR2[2:0] = Timer Prescaler Select: See Table22-12 of MC9S12G Family Reference Manual r1.25 (set for bus/1)
+  
+                    
+  TIOS = 0xFE;     //Timer Input Capture or Output capture
+                    //set TIC[0] and input (similar to DDR)
+  PERT = 0x01;     //Enable Pull-Up resistor on TIC[0]
+
+  TCTL3 = 0x00;    //TCTL3 & TCTL4 configure which edge(s) to capture
+  TCTL4 = 0x02;    //Configured for falling edge on TIC[0]
+
+/*
+ * The next one assignment statement configures the Timer Interrupt Enable                                                   
+ */           
+   
+  TIE = 0x01;      //Timer Interrupt Enable
+
+/*
+ * The next one assignment statement configures the ESDX to catch Interrupt Requests                                                   
+ */           
+  
+	EnableInterrupts; //CodeWarrior's method of enabling interrupts           
+ 
+  for(;;){
+    while(button==0x01){
+    }
+    val=ATDDR0;
+    delay1ms(100);
+    SCI_OutUDec(val); OutCRLF();
+    if(val>600){
+      if(flipflop==0){
+        flipflop=1;
+        counter++;
+    }
+    }else {
+       flipflop=0; 
+      }
+    tenSecCounter++;
+    if(tenSecCounter==100){
+        BPM=counter*6;
+        tenSecCounter=0;
+        counter=0;
+        flipflop=0;
+    }
+    tens=(BPM/10)%10;
+    ones=BPM%10;
+    if(BPM>100){
+      PT1AD_PT1AD0=1;
+
+    } else{
+      PT1AD_PT1AD0=0;
+    }
+    //Ten's digit
+    if(tens>=8){
+      PT1AD_PT1AD1=1;
+    }else{
+      PT1AD_PT1AD1=0;
+    }
+    if(tens%8>=4){
+      PT1AD_PT1AD2=1;
+    }else{
+      PT1AD_PT1AD2=0;
+    }
+    if(tens%4>=2){
+      PT1AD_PT1AD3=1;
+    }else{
+      PT1AD_PT1AD3=0;
+    }
+    if(tens%2>=1){
+      PT1AD_PT1AD4=1;
+    }else{
+      PT1AD_PT1AD4=0;
+    }
+  
+    //One's digit
+    if(ones>=8){
+      PT1AD_PT1AD6=1;
+    }else{
+      PT1AD_PT1AD6=0;
+    }
+    if(ones%8>=4){
+      PT0AD_PT0AD0=1;
+    }else{
+      PT0AD_PT0AD0=0;
+    }
+    if(ones%4>=2){
+      PT0AD_PT0AD3=1;
+    }else{
+      PT0AD_PT0AD3=0;
+    }
+    if(ones%2>=1){
+      PTJ=0x01;
+    }else{
+      PTJ=0x00;
+    }
+  }
+}
+ 
+/////////////////////////////////////////////////////
+void delay1ms(unsigned int k){
+  int ix; 
+//enable timer and fast flag clear
+	 TSCR1 = 0x90;
+	 
+// disable timer interrupt, select prescaler to 1
+	 TSCR2 = 0x00;
+	 
+// enable OC0(not necessary) 
+	 TIOS |= 0x02;
+	 
+	 TC1 = TCNT + 16000; 
+	 
+	 for(ix= 0; ix<k; ix++){
+		 while(!(TFLG1_C1F));
+			 
+		 TC1+= 16000; 
+	 } 
+	 
+	 TIOS &= ~0x01;
+}
+
+void setClk(void){
+
+  //CPMUPROT = 0;               //Protection of clock configuration is disabled
+  //CPMUCLKS = 1;
+  
+  CPMUSYNR=0x07;     //set PLL multiplier (0x42 = 01 000010)
+  CPMUREFDIV = 0x03;//set PLL divider (0x80 = 10 000000)
+  CPMUPOSTDIV=0x00;
+  CPMUCLKS=0x80;           // set Post Divider
+  CPMUOSC = 0x80;               // Enable external oscillator
+  while (!(CPMUFLG &0x08)) {}  // wait for it
+  //CPMUPLL = CPMUCLKS;           // Engage PLL to system
+}
+
+void OutCRLF(void){
+  SCI_OutChar(CR);
+  SCI_OutChar(LF);
+  //PTJ ^= 0x20;          // toggle LED D2
+}
+
+interrupt  VectorNumber_Vtimch0 void ISR_Vtimch0(void)
+{
+  unsigned int temp;
+  
+  button ^= 0x01;      //Toggles Button variable    
+  delay1ms(100);
+
+  temp = TC0;       //allows another TIC interrupt
+}
